@@ -415,6 +415,13 @@ def register(data: dict = Body(...)):
         if cur.fetchone():
             raise HTTPException(400, "Bu email avval ro'yxatdan o'tgan")
 
+        # PHONE CHECK
+        cur.execute(
+            "SELECT id FROM users WHERE phone=%s",
+            (data["phone"],)
+        )
+        if cur.fetchone():
+                raise HTTPException(400, "Bu telefon raqam allaqachon ro'yxatdan o'tgan")
         password = data["password"]
 
         # INTEGER SAFE CONVERT
