@@ -27,13 +27,10 @@ class UserLogin(BaseModel):
 
 
 # ====== DB CONNECT ======
+import os
+
 def get_db():
-    conn = psycopg2.connect(
-        host="localhost",
-        database="xorazm_job",
-        user="postgres",
-        password="1234"
-    )
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
     return conn
 
 
