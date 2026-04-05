@@ -7,7 +7,7 @@ import psycopg2
 from fastapi import Query
 from fastapi import WebSocket
 from typing import Dict, List
-
+from fastapi import WebSocketDisconnect
 app = FastAPI()
 # ====== CORS ======
 app.add_middleware(
