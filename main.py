@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import psycopg2
-
+from fastapi import Query
 from fastapi import WebSocket
 from typing import Dict, List
 
@@ -43,7 +43,10 @@ def get_db():
 @app.get("/jobs")
 def get_jobs(
     search: Optional[str] = None,
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    radius: int = 20
 ):
 
     conn = get_db()
@@ -58,6 +61,7 @@ def get_jobs(
                 j.company,
                 j.salary,
                 j.location,
+                j.district,
                 j.description,
                 j.user_id,
                 j.vacancies_count,
@@ -107,23 +111,51 @@ def get_jobs(
         query += """
             GROUP BY 
                 j.id, j.title, j.company, j.salary, j.location,
-                j.description, j.user_id, j.vacancies_count,
+                j.district, j.description, j.user_id, j.vacancies_count,
                 j.experience_required, j.payment_type,
                 j.employment_type, j.work_mode, j.work_time,
                 j.education_level, j.university, j.faculty,
                 j.edu_from, j.edu_to, j.gender, j.lat, j.lng,
                 j.age_required, j.min_age, j.max_age,
                 j.field, j.job_for, j.created_at, j.views_count
-
             ORDER BY j.id DESC
         """
 
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
 
+        import math
+
+        def distance(lat1, lon1, lat2, lon2):
+            R = 6371
+
+            dLat = math.radians(lat2 - lat1)
+            dLon = math.radians(lon2 - lon1)
+
+            a = (
+                math.sin(dLat/2)**2 +
+                math.cos(math.radians(lat1)) *
+                math.cos(math.radians(lat2)) *
+                math.sin(dLon/2)**2
+            )
+
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+            return R * c
+
         result = []
 
         for r in rows:
+
+            job_lat = r[20]
+            job_lng = r[21]
+
+            # nearby filter
+            if lat and lng and job_lat and job_lng:
+
+                d = distance(lat, lng, job_lat, job_lng)
+            else:
+                d = None
 
             result.append({
 
@@ -132,32 +164,33 @@ def get_jobs(
                 "company": r[2],
                 "salary": r[3],
                 "location": r[4],
-                "desc": r[5],
-                "user_id": r[6],
-                "vacancies_count": r[7],
-                "experience_required": r[8],
-                "payment_type": r[9],
-                "employment_type": r[10],
-                "work_mode": r[11],
-                "work_time": r[12],
-                "education_level": r[13],
-                "university": r[14],
-                "faculty": r[15],
-                "edu_from": r[16],
-                "edu_to": r[17],
-                "gender": r[18],
-                "lat": float(r[19]) if r[19] else None,
-                "lng": float(r[20]) if r[20] else None,
-                "age_required": r[21],
-                "min_age": r[22],
-                "max_age": r[23],
-                "field": r[24],
-                "job_for": r[25],
+                "district": r[5],
+                "desc": r[6],
+                "user_id": r[7],
+                "vacancies_count": r[8],
+                "experience_required": r[9],
+                "payment_type": r[10],
+                "employment_type": r[11],
+                "work_mode": r[12],
+                "work_time": r[13],
+                "education_level": r[14],
+                "university": r[15],
+                "faculty": r[16],
+                "edu_from": r[17],
+                "edu_to": r[18],
+                "gender": r[19],
+                "lat": float(r[20]) if r[20] else None,
+                "lng": float(r[21]) if r[21] else None,
+                "distance": round(d, 1) if d else None,
+                "age_required": r[22],
+                "min_age": r[23],
+                "max_age": r[24],
+                "field": r[25],
+                "job_for": r[26],
 
-                # statistika
-                "created_at": r[26],
-                "views_count": r[27],
-                "applications_count": r[28]
+                "created_at": r[27],
+                "views_count": r[28],
+                "applications_count": r[29]
 
             })
 
@@ -186,6 +219,12 @@ def add_view(job_id: int):
     conn.close()
 
     return {"message": "view added"}
+
+
+
+
+
+
 
 # ==========================
 # 🔹 BITTA VAKANSIYA
@@ -461,8 +500,8 @@ def login(data: UserLogin):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, name, email, password, role
-        FROM users
+        SELECT id, name, email, password, role, lat, lng
+FROM users
         WHERE email=%s
     """, (data.email,))
 
@@ -476,11 +515,13 @@ def login(data: UserLogin):
         raise HTTPException(400, "Parol noto‘g‘ri")
 
     return {
-        "id": row[0],
-        "name": row[1],
-        "email": row[2],
-        "role": row[4]
-    }
+    "id": row[0],
+    "name": row[1],
+    "email": row[2],
+    "role": row[4],
+    "lat": row[5],
+    "lng": row[6]
+}
 
 
 # ==========================
@@ -530,101 +571,75 @@ async def apply(data = Body(...)):
         score = 0
 
         # TAJRIBA (30%)
-
-        if req_exp and worker_exp:
-
+        if not req_exp or req_exp in ("Ahamiyatsiz", "Talab etilmaydi", ""):
+            score += 30
+        elif worker_exp:
             try:
                 needed = int(req_exp.split()[0])
-                worker_exp = int(worker_exp)
-
-                if worker_exp >= needed:
+                if int(worker_exp) >= needed:
                     score += 30
-
             except:
-                pass
+                score += 30
 
-
-        # TALIM (20%)
-
+        # TA'LIM (20%)
         edu_levels = {
-            "O'rta":1,
-            "Bakalavr":2,
-            "Magistr":3
+            "O'rta": 1,
+            "Bakalavr": 2,
+            "Magistr": 3
         }
-
-        if req_edu == "Ahamiyatsiz":
+        if not req_edu or req_edu in ("Ahamiyatsiz", ""):
             score += 20
-
         elif worker_edu in edu_levels and req_edu in edu_levels:
-
             if edu_levels[worker_edu] >= edu_levels[req_edu]:
                 score += 20
 
-
         # JINS (10%)
-
-        if req_gender == "Ahamiyatsiz":
+        if not req_gender or req_gender in ("Ahamiyatsiz", ""):
             score += 10
-
         elif worker_gender == req_gender:
             score += 10
 
-
         # YOSH (10%)
-
-        if age_required == "Ahamiyatsiz":
+        if not age_required or age_required in ("Ahamiyatsiz", ""):
             score += 10
-
         else:
-
             if min_age and worker_age < min_age:
                 raise HTTPException(
                     400,
                     f"Sizning yoshingiz ({worker_age}) bu ish uchun juda kichik"
                 )
-
             if max_age and worker_age > max_age:
                 raise HTTPException(
                     400,
                     f"Sizning yoshingiz ({worker_age}) bu ish uchun katta"
                 )
-
             score += 10
 
-
-        # ENGLISH IELTS (10%)
-
-        if req_eng and req_eng != "none":
-
+        # INGLIZ TILI (10%)
+        if not req_eng or req_eng in ("none", "Ahamiyatsiz", ""):
+            score += 10
+        else:
             try:
-
                 if float(worker_eng) >= float(req_eng):
                     score += 10
-
             except:
                 pass
 
-
-        # RUSSIAN (10%)
-
+        # RUS TILI (10%)
         levels = {
-            "A1":1,
-            "A2":2,
-            "B1":3,
-            "B2":4,
-            "C1":5
+            "A1": 1,
+            "A2": 2,
+            "B1": 3,
+            "B2": 4,
+            "C1": 5
         }
-
-        if req_rus and req_rus != "none":
-
-            if worker_rus in levels and req_rus in levels:
-
-                if levels[worker_rus] >= levels[req_rus]:
-                    score += 10
-
+        if not req_rus or req_rus in ("none", "Ahamiyatsiz", ""):
+            score += 10
+        elif worker_rus in levels and req_rus in levels:
+            if levels[worker_rus] >= levels[req_rus]:
+                score += 10
 
         match_percent = score
-
 
         cur.execute("""
             SELECT id FROM applications
@@ -633,7 +648,6 @@ async def apply(data = Body(...)):
 
         if cur.fetchone():
             raise HTTPException(400, "Siz bu ishga allaqachon ariza yuborgansiz")
-
 
         cur.execute("""
             INSERT INTO applications
@@ -681,29 +695,27 @@ async def apply(data = Body(...)):
     cur2 = conn2.cursor()
 
     cur2.execute(
-    "SELECT user_id FROM jobs WHERE id=%s",
-    (data["job_id"],)
-)
+        "SELECT user_id FROM jobs WHERE id=%s",
+        (data["job_id"],)
+    )
 
     owner = cur2.fetchone()
     conn2.close()
 
     if owner:
-
         owner_id = owner[0]
-
         if owner_id in active_connections:
-             for connection in active_connections[owner_id]:
-                 await connection.send_json({
-                     "type": "new_application",
-                     "application_id": app_id
-                 })
+            for connection in active_connections[owner_id]:
+                await connection.send_json({
+                    "type": "new_application",
+                    "application_id": app_id
+                })
 
     return {
-    "message": "ok",
-    "application_id": app_id,
-    "match": match_percent
-}
+        "message": "ok",
+        "application_id": app_id,
+        "match": match_percent
+    }
 # ==========================
 # 🔹 WORKER O‘Z ARIZALARI
 # ==========================
@@ -1556,3 +1568,235 @@ def platform_stats():
         "workers": workers,
         "companies": companies
     }
+
+from fastapi import Query
+
+
+
+
+
+# ================================
+# PROFIL ENDPOINTLARI (YANGILANGAN)
+# ================================
+ 
+@app.get("/profile/{user_id}")
+def get_profile(user_id: int):
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            id, name, surname, role,
+            address, education,
+            field, experience, salary, about,
+            phone, email,
+            english_level, russian_level,
+            district, lat, lng
+        FROM users
+        WHERE id=%s
+    """, (user_id,))
+
+    u = cur.fetchone()
+
+    if not u:
+        raise HTTPException(404, "User topilmadi")
+
+    role = u[3]
+
+    # SKILLS
+    cur.execute("""
+        SELECT s.id, s.name
+        FROM skills s
+        JOIN user_skills us ON s.id = us.skill_id
+        WHERE us.user_id=%s
+    """, (user_id,))
+
+    skills = cur.fetchall()
+
+    # JOBS (faqat employer uchun)
+    jobs = []
+
+    if role == "employer":
+        cur.execute("""
+            SELECT id, title, salary, views_count
+            FROM jobs
+            WHERE user_id=%s
+            ORDER BY created_at DESC
+        """, (user_id,))
+
+        jobs = cur.fetchall()
+
+    conn.close()
+
+    return {
+        "user": {
+            "id":            u[0],
+            "name":          u[1],
+            "surname":       u[2],
+            "role":          u[3],
+            "address":       u[4],
+            "education":     u[5],
+            "field":         u[6],
+            "experience":    u[7],
+            "salary":        u[8],
+            "about":         u[9],
+            "phone":         u[10],
+            "email":         u[11],
+            "english_level": u[12],
+            "russian_level": u[13],
+            "district":      u[14],          # ✅ qo'shildi
+            "lat":           float(u[15]) if u[15] else None,  # ✅ qo'shildi
+            "lng":           float(u[16]) if u[16] else None,  # ✅ qo'shildi
+        },
+        "skills": [
+            {"id": s[0], "name": s[1]} for s in skills
+        ],
+        "jobs": [
+            {
+                "id":     j[0],
+                "title":  j[1],
+                "salary": j[2],
+                "views":  j[3]
+            } for j in jobs
+        ]
+    }
+
+@app.put("/profile/update/{user_id}")
+def update_profile(user_id: int, data: dict = Body(...)):
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    experience = data.get("experience")
+    salary     = data.get("salary")
+
+    if experience == "":
+        experience = None
+    if salary == "":
+        salary = None
+
+    cur.execute("""
+        UPDATE users
+        SET
+            name=%s,
+            surname=%s,
+            about=%s,
+            address=%s,
+            district=%s,
+            education=%s,
+            experience=%s,
+            salary=%s,
+            phone=%s,
+            english_level=%s,
+            russian_level=%s,
+            lat=%s,
+            lng=%s
+        WHERE id=%s
+    """, (
+        data.get("name"),
+        data.get("surname"),
+        data.get("about"),
+        data.get("address"),
+        data.get("district"),
+        data.get("education"),
+        experience,
+        salary,
+        data.get("phone"),
+        data.get("english_level"),
+        data.get("russian_level"),
+        data.get("lat"),
+        data.get("lng"),
+        user_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok"}
+ # ================================
+# PAROL O'ZGARTIRISH
+# ================================
+ 
+@app.put("/profile/change-password/{user_id}")
+def change_password(user_id: int, data: dict = Body(...)):
+ 
+    old_password = data.get("old_password")
+    new_password = data.get("new_password")
+ 
+    if not old_password or not new_password:
+        raise HTTPException(400, "Eski va yangi parol kiritilishi shart")
+ 
+    conn = get_db()
+    cur = conn.cursor()
+ 
+    # Eski parolni tekshirish
+    cur.execute("SELECT password FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+ 
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+ 
+    if row[0] != old_password:
+        conn.close()
+        raise HTTPException(400, "Eski parol noto'g'ri")
+ 
+    # Yangi parolni saqlash
+    cur.execute("""
+        UPDATE users
+        SET password=%s
+        WHERE id=%s
+    """, (new_password, user_id))
+ 
+    conn.commit()
+    conn.close()
+ 
+    return {"status": "ok"}
+ 
+ 
+# ================================
+# EMAIL O'ZGARTIRISH
+# ================================
+ 
+@app.put("/profile/change-email/{user_id}")
+def change_email(user_id: int, data: dict = Body(...)):
+ 
+    new_email   = data.get("new_email")
+    password    = data.get("password")
+ 
+    if not new_email or not password:
+        raise HTTPException(400, "Email va parol kiritilishi shart")
+ 
+    conn = get_db()
+    cur = conn.cursor()
+ 
+    # Parolni tekshirish
+    cur.execute("SELECT password FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+ 
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+ 
+    if row[0] != password:
+        conn.close()
+        raise HTTPException(400, "Parol noto'g'ri")
+ 
+    # Email allaqachon bor-yo'qligini tekshirish
+    cur.execute("SELECT id FROM users WHERE email=%s AND id!=%s", (new_email, user_id))
+ 
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(400, "Bu email allaqachon ishlatilgan")
+ 
+    cur.execute("""
+        UPDATE users
+        SET email=%s
+        WHERE id=%s
+    """, (new_email, user_id))
+ 
+    conn.commit()
+    conn.close()
+ 
+    return {"status": "ok"}
