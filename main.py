@@ -263,11 +263,15 @@ def get_job(job_id: int):
         english_level,
         russian_level,
         lat,
-        lng
-
-        FROM jobs
-        WHERE id=%s
-    """, (job_id,))
+        lng,
+        weight_age,
+        weight_experience, 
+        weight_education,
+        weight_english,
+        weight_russian, 
+        weight_gender
+    FROM jobs WHERE id=%s
+""", (job_id,))
 
     r = cur.fetchone()
     conn.close()
@@ -305,7 +309,13 @@ def get_job(job_id: int):
         "russian_level": r[23],
 
         "lat": r[24],
-        "lng": r[25]
+        "lng": r[25],
+        "weight_age":        r[26],
+        "weight_experience": r[27],
+        "weight_education":  r[28],
+        "weight_english":    r[29],
+        "weight_russian":    r[30],
+        "weight_gender":     r[31],
     }
 # ==========================
 # 🔹 VAKANSIYA QO‘SHISH
@@ -315,15 +325,24 @@ def create_job(data = Body(...)):
 
     conn = get_db()
     cur = conn.cursor()
+
     district = data.get("district")
-    min_age = data.get("min_age")
-    max_age = data.get("max_age")
+    min_age  = data.get("min_age") or None
+    max_age  = data.get("max_age") or None
 
-    if min_age == "":
-        min_age = None
+    # ✅ FOIZLAR VALIDATSIYASI
+    weights = {
+        "age":        int(data.get("weight_age", 0)),
+        "experience": int(data.get("weight_experience", 0)),
+        "education":  int(data.get("weight_education", 0)),
+        "english":    int(data.get("weight_english", 0)),
+        "russian":    int(data.get("weight_russian", 0)),
+        "gender":     int(data.get("weight_gender", 0)),
+    }
 
-    if max_age == "":
-        max_age = None
+    total = sum(weights.values())
+    if total != 100:
+        raise HTTPException(400, f"Foizlar jami 100% bo'lishi shart (hozir {total}%)")
 
     cur.execute("""
         INSERT INTO jobs
@@ -350,16 +369,22 @@ def create_job(data = Body(...)):
             max_age,
             english_level,
             russian_level,
-            district
+            district,
+            weight_age,
+            weight_experience,
+            weight_education,
+            weight_english,
+            weight_russian,
+            weight_gender
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
         data["title"],
         data["company"],
         data["salary"],
         data.get("payment_type"),
         data.get("location"),
-        data.get("desc",""),
+        data.get("desc", ""),
         data.get("field"),
         data["user_id"],
         data.get("experience_required"),
@@ -376,7 +401,13 @@ def create_job(data = Body(...)):
         max_age,
         data.get("english_level"),
         data.get("russian_level"),
-        district
+        district,
+        weights["age"],
+        weights["experience"],
+        weights["education"],
+        weights["english"],
+        weights["russian"],
+        weights["gender"]
     ))
 
     conn.commit()
@@ -414,7 +445,11 @@ def register(data: dict = Body(...)):
 
         if cur.fetchone():
             raise HTTPException(400, "Bu email avval ro'yxatdan o'tgan")
+<<<<<<< HEAD
 
+=======
+      
+>>>>>>> 8dc9354 (Add weight fields to jobs)
         # PHONE CHECK
         cur.execute(
             "SELECT id FROM users WHERE phone=%s",
@@ -534,7 +569,6 @@ FROM users
 # ==========================
 # 🔹 ARIZA YUBORISH
 # ==========================
-
 @app.post("/apply")
 async def apply(data = Body(...)):
 
@@ -542,15 +576,14 @@ async def apply(data = Body(...)):
     cur = conn.cursor()
 
     try:
-
-        worker_age = data["age"]
-        worker_exp = data["experience"]
-        worker_edu = data["education"]
+        worker_age    = data["age"]
+        worker_exp    = data["experience"]
+        worker_edu    = data["education"]
         worker_gender = data["gender"]
+        worker_eng    = data.get("english_level", "")
+        worker_rus    = data.get("russian_level", "")
 
-        worker_eng = data.get("english_level")
-        worker_rus = data.get("russian_level")
-
+        # ✅ weight_* ustunlarini ham olamiz
         cur.execute("""
             SELECT
                 age_required,
@@ -560,7 +593,13 @@ async def apply(data = Body(...)):
                 education_level,
                 gender,
                 english_level,
-                russian_level
+                russian_level,
+                weight_age,
+                weight_experience,
+                weight_education,
+                weight_english,
+                weight_russian,
+                weight_gender
             FROM jobs
             WHERE id=%s
         """, (data["job_id"],))
@@ -570,81 +609,75 @@ async def apply(data = Body(...)):
         if not job:
             raise HTTPException(404, "Vakansiya topilmadi")
 
-        age_required, min_age, max_age, req_exp, req_edu, req_gender, req_eng, req_rus = job
+        (age_required, min_age, max_age,
+         req_exp, req_edu, req_gender, req_eng, req_rus,
+         w_age, w_exp, w_edu, w_eng, w_rus, w_gender) = job
 
         score = 0
 
-        # TAJRIBA (30%)
+        lang_levels = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
+        edu_levels  = {"O'rta": 1, "Bakalavr": 2, "Magistr": 3}
+
+        # TAJRIBA
         if not req_exp or req_exp in ("Ahamiyatsiz", "Talab etilmaydi", ""):
-            score += 30
+            score += w_exp
         elif worker_exp:
             try:
                 needed = int(req_exp.split()[0])
                 if int(worker_exp) >= needed:
-                    score += 30
+                    score += w_exp
+                else:
+                    # qisman ball (proporsional)
+                    score += round((int(worker_exp) / needed) * w_exp)
             except:
-                score += 30
+                score += w_exp
 
-        # TA'LIM (20%)
-        edu_levels = {
-            "O'rta": 1,
-            "Bakalavr": 2,
-            "Magistr": 3
-        }
+        # TA'LIM
         if not req_edu or req_edu in ("Ahamiyatsiz", ""):
-            score += 20
+            score += w_edu
         elif worker_edu in edu_levels and req_edu in edu_levels:
             if edu_levels[worker_edu] >= edu_levels[req_edu]:
-                score += 20
+                score += w_edu
 
-        # JINS (10%)
+        # JINS
         if not req_gender or req_gender in ("Ahamiyatsiz", ""):
-            score += 10
+            score += w_gender
         elif worker_gender == req_gender:
-            score += 10
+            score += w_gender
 
-        # YOSH (10%)
+        # YOSH
         if not age_required or age_required in ("Ahamiyatsiz", ""):
-            score += 10
+            score += w_age
         else:
             if min_age and worker_age < min_age:
                 raise HTTPException(
                     400,
-                    f"Sizning yoshingiz ({worker_age}) bu ish uchun juda kichik"
+                    f"Yoshingiz ({worker_age}) bu ish uchun kichik (min: {min_age})"
                 )
             if max_age and worker_age > max_age:
                 raise HTTPException(
                     400,
-                    f"Sizning yoshingiz ({worker_age}) bu ish uchun katta"
+                    f"Yoshingiz ({worker_age}) bu ish uchun katta (max: {max_age})"
                 )
-            score += 10
+            score += w_age
 
-        # INGLIZ TILI (10%)
+        # INGLIZ TILI ✅ (oldin float() xatosi bor edi, endi lang_levels bilan)
         if not req_eng or req_eng in ("none", "Ahamiyatsiz", ""):
-            score += 10
-        else:
-            try:
-                if float(worker_eng) >= float(req_eng):
-                    score += 10
-            except:
-                pass
+            score += w_eng
+        elif worker_eng in lang_levels and req_eng in lang_levels:
+            if lang_levels[worker_eng] >= lang_levels[req_eng]:
+                score += w_eng
 
-        # RUS TILI (10%)
-        levels = {
-            "A1": 1,
-            "A2": 2,
-            "B1": 3,
-            "B2": 4,
-            "C1": 5
-        }
+        # RUS TILI
         if not req_rus or req_rus in ("none", "Ahamiyatsiz", ""):
-            score += 10
-        elif worker_rus in levels and req_rus in levels:
-            if levels[worker_rus] >= levels[req_rus]:
-                score += 10
+            score += w_rus
+        elif worker_rus in lang_levels and req_rus in lang_levels:
+            if lang_levels[worker_rus] >= lang_levels[req_rus]:
+                score += w_rus
 
-        match_percent = score
+        match_percent = min(score, 100)  # hech qachon 100dan oshmaydi
 
+        # takroriy ariza tekshirish
         cur.execute("""
             SELECT id FROM applications
             WHERE job_id=%s AND user_id=%s
@@ -1358,7 +1391,6 @@ def employer_jobs(user_id: int):
 # ==========================
 # 🔹 VAKANSIYA TAHRIRLASH
 # ==========================
-
 @app.put("/jobs/{job_id}")
 def update_job(job_id: int, data = Body(...)):
 
@@ -1377,13 +1409,23 @@ def update_job(job_id: int, data = Body(...)):
         conn.close()
         raise HTTPException(403, "Bu vakansiya sizga tegishli emas")
 
-    min_age = data.get("min_age")
-    max_age = data.get("max_age")
+    min_age = data.get("min_age") or None
+    max_age = data.get("max_age") or None
 
-    if min_age == "":
-        min_age = None
-    if max_age == "":
-        max_age = None
+    # ✅ FOIZLAR VALIDATSIYASI
+    weights = {
+        "age":        int(data.get("weight_age", 0)),
+        "experience": int(data.get("weight_experience", 0)),
+        "education":  int(data.get("weight_education", 0)),
+        "english":    int(data.get("weight_english", 0)),
+        "russian":    int(data.get("weight_russian", 0)),
+        "gender":     int(data.get("weight_gender", 0)),
+    }
+
+    total = sum(weights.values())
+    if total != 100:
+        conn.close()
+        raise HTTPException(400, f"Foizlar jami 100% bo'lishi shart (hozir {total}%)")
 
     cur.execute("""
         UPDATE jobs
@@ -1408,7 +1450,13 @@ def update_job(job_id: int, data = Body(...)):
             min_age=%s,
             max_age=%s,
             english_level=%s,
-            russian_level=%s
+            russian_level=%s,
+            weight_age=%s,
+            weight_experience=%s,
+            weight_education=%s,
+            weight_english=%s,
+            weight_russian=%s,
+            weight_gender=%s
         WHERE id=%s
     """, (
         data.get("title"),
@@ -1432,6 +1480,12 @@ def update_job(job_id: int, data = Body(...)):
         max_age,
         data.get("english_level"),
         data.get("russian_level"),
+        weights["age"],
+        weights["experience"],
+        weights["education"],
+        weights["english"],
+        weights["russian"],
+        weights["gender"],
         job_id
     ))
 
