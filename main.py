@@ -445,11 +445,7 @@ def register(data: dict = Body(...)):
 
         if cur.fetchone():
             raise HTTPException(400, "Bu email avval ro'yxatdan o'tgan")
-<<<<<<< HEAD
-
-=======
-      
->>>>>>> 8dc9354 (Add weight fields to jobs)
+            
         # PHONE CHECK
         cur.execute(
             "SELECT id FROM users WHERE phone=%s",
