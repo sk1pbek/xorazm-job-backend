@@ -29,10 +29,7 @@ class UserLogin(BaseModel):
 # ====== DB CONNECT ======
 def get_db():
     conn = psycopg2.connect(
-        host="localhost",
-        database="xorazm_job",
-        user="postgres",
-        password="1234"
+        "postgresql://xorazm_job_db_3jp9_user:W4oUkZELBB005GSc4pzNMQ7lVIZAyOpN@dpg-d793ohtactks73cvdv80-a.frankfurt-postgres.render.com/xorazm_job_db_3jp9"
     )
     return conn
 
