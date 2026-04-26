@@ -7,7 +7,7 @@ import psycopg2
 from fastapi import Query
 from fastapi import WebSocket
 from typing import Dict, List
-from fastapi import WebSocketDisconnect
+
 app = FastAPI()
 # ====== CORS ======
 app.add_middleware(
@@ -27,10 +27,13 @@ class UserLogin(BaseModel):
 
 
 # ====== DB CONNECT ======
-import os
-
 def get_db():
-    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+    conn = psycopg2.connect(
+        host="localhost",
+        database="xorazm_job",
+        user="postgres",
+        password="1234"
+    )
     return conn
 
 
@@ -445,11 +448,7 @@ def register(data: dict = Body(...)):
 
         if cur.fetchone():
             raise HTTPException(400, "Bu email avval ro'yxatdan o'tgan")
-<<<<<<< HEAD
-
-=======
       
->>>>>>> 8dc9354 (Add weight fields to jobs)
         # PHONE CHECK
         cur.execute(
             "SELECT id FROM users WHERE phone=%s",
@@ -1858,3 +1857,44 @@ def change_email(user_id: int, data: dict = Body(...)):
     conn.close()
  
     return {"status": "ok"}
+
+@app.post("/skills/custom")
+def add_custom_skill(data: dict = Body(...)):
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        skill_name = data.get("name", "").strip()
+        field      = data.get("field", "").strip()
+
+        if not skill_name or not field:
+            raise HTTPException(400, "name va field majburiy")
+
+        cur.execute("""
+            SELECT id FROM skills
+            WHERE LOWER(name) = LOWER(%s) AND field = %s
+        """, (skill_name, field))
+
+        existing = cur.fetchone()
+
+        if existing:
+            skill_id = existing[0]
+        else:
+            cur.execute("""
+                INSERT INTO skills (name, field, is_custom)
+                VALUES (%s, %s, TRUE)
+                RETURNING id
+            """, (skill_name, field))
+            skill_id = cur.fetchone()[0]
+
+        conn.commit()
+        return {"skill_id": skill_id, "skill_name": skill_name}
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
