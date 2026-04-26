@@ -448,11 +448,6 @@ def register(data: dict = Body(...)):
 
         if cur.fetchone():
             raise HTTPException(400, "Bu email avval ro'yxatdan o'tgan")
-<<<<<<< HEAD
-      
-=======
-            
->>>>>>> 25dce677608d7acdd18b4a2e9aad9ea854a24c22
         # PHONE CHECK
         cur.execute(
             "SELECT id FROM users WHERE phone=%s",
