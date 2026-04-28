@@ -1853,3 +1853,73 @@ def change_email(user_id: int, data: dict = Body(...)):
     conn.close()
  
     return {"status": "ok"}
+
+# ===============================
+# 🤖 TELEGRAM BOT
+# ===============================
+import asyncio
+import aiohttp
+
+BOT_TOKEN = "7219711742:AAH3OoOY0JMw5hcFdoJlWYafscEGDnnMh-E"
+BOT_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+async def send_telegram(chat_id: int, text: str):
+    async with aiohttp.ClientSession() as session:
+        await session.post(f"{BOT_API}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML"
+        })
+
+# ===============================
+# 🤖 BOT WEBHOOK — /start
+# ===============================
+@app.post("/bot/webhook")
+async def bot_webhook(data: dict = Body(...)):
+    message = data.get("message", {})
+    text = message.get("text", "")
+    chat_id = message.get("chat", {}).get("id")
+
+    if text.startswith("/start"):
+        parts = text.split(" ")
+        
+        if len(parts) > 1:
+            user_id = parts[1].replace("user_", "")
+            
+            try:
+                conn = get_db()
+                cur = conn.cursor()
+                
+                cur.execute("""
+                    UPDATE users 
+                    SET telegram_chat_id = %s 
+                    WHERE id = %s
+                """, (chat_id, int(user_id)))
+                
+                conn.commit()
+                conn.close()
+                
+                await send_telegram(chat_id, 
+                    "✅ Telegram muvaffaqiyatli ulandi!\n\n"
+                    "Endi ariza yangiliklari va xabarlar shu yerga keladi."
+                )
+            except:
+                await send_telegram(chat_id, "❌ Xatolik yuz berdi")
+        else:
+            await send_telegram(chat_id,
+                "👋 Assalomu alaykum!\n\n"
+                "XorazmJob botiga xush kelibsiz.\n"
+                "Saytga kirib profilingizdan Telegram ga ulang."
+            )
+
+    return {"ok": True}
+
+
+# ===============================
+# 🔗 TELEGRAM ULANISH LINKI
+# ===============================
+@app.get("/telegram/link/{user_id}")
+def telegram_link(user_id: int):
+    return {
+        "link": f"https://t.me/xorazmjob_bot?start=user_{user_id}"
+    }
