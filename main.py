@@ -743,6 +743,21 @@ async def apply(data = Body(...)):
                     "application_id": app_id
                 })
 
+        # 📱 TELEGRAM XABAR — EMPLOYER
+        conn3 = get_db()
+        cur3 = conn3.cursor()
+        cur3.execute("SELECT telegram_chat_id, name FROM users WHERE id=%s", (owner_id,))
+        employer = cur3.fetchone()
+        conn3.close()
+
+        if employer and employer[0]:
+            await send_telegram(employer[0],
+                f"📨 Yangi ariza keldi!\n\n"
+                f"Vakansiyangizga yangi nomzod ariza yubordi.\n\n"
+                f"Ko'rish uchun saytga kiring:\n"
+                f"https://xorazmjob1.netlify.app"
+            )
+
     return {
         "message": "ok",
         "application_id": app_id,
@@ -846,7 +861,6 @@ async def accept_app(app_id: int, user_id: int):
     conn = get_db()
     cur = conn.cursor()
 
-    # 🔎 tekshir
     cur.execute("""
         SELECT j.user_id, a.user_id
         FROM applications a
@@ -864,9 +878,8 @@ async def accept_app(app_id: int, user_id: int):
 
     if employer_id != user_id:
         conn.close()
-        raise HTTPException(403, "Ruxsat yo‘q")
+        raise HTTPException(403, "Ruxsat yo'q")
 
-    # ✅ update
     cur.execute("""
         UPDATE applications
         SET status='accepted'
@@ -874,6 +887,11 @@ async def accept_app(app_id: int, user_id: int):
     """, (app_id,))
 
     conn.commit()
+
+    # Worker telegram chat_id olish
+    cur.execute("SELECT telegram_chat_id, name FROM users WHERE id=%s", (worker_id,))
+    worker = cur.fetchone()
+
     conn.close()
 
     # 🔥 workerga real-time signal
@@ -883,6 +901,15 @@ async def accept_app(app_id: int, user_id: int):
                 "type": "application_accepted",
                 "application_id": app_id
             })
+
+    # 📱 TELEGRAM XABAR — WORKER
+    if worker and worker[0]:
+        await send_telegram(worker[0],
+            f"🎉 Tabriklaymiz, {worker[1]}!\n\n"
+            f"Siz yuborgan ariza ko'rib chiqildi va siz ishga <b>qabul qilindingiz</b>!\n\n"
+            f"💬 Batafsil bilish uchun saytga kirib profilingizni tekshiring:\n"
+            f"https://xorazmjob1.netlify.app"
+        )
 
     return {"message": "accepted"}
 
@@ -897,7 +924,7 @@ def reject_app(app_id: int, user_id: int):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT j.user_id
+        SELECT j.user_id, a.user_id
         FROM applications a
         JOIN jobs j ON j.id = a.job_id
         WHERE a.id=%s
@@ -913,6 +940,8 @@ def reject_app(app_id: int, user_id: int):
         conn.close()
         raise HTTPException(403, "Bu ariza sizning vakansiyangizga tegishli emas!")
 
+    employer_id, worker_id = row[0], row[1]
+
     cur.execute("""
         UPDATE applications
         SET status='rejected'
@@ -920,7 +949,21 @@ def reject_app(app_id: int, user_id: int):
     """, (app_id,))
 
     conn.commit()
+
+    # Worker telegram chat_id olish
+    cur.execute("SELECT telegram_chat_id, name FROM users WHERE id=%s", (worker_id,))
+    worker = cur.fetchone()
+
     conn.close()
+
+    # 📱 TELEGRAM XABAR — WORKER
+    if worker and worker[0]:
+        asyncio.create_task(send_telegram(worker[0],
+            f"😔 {worker[1]}, afsuski...\n\n"
+            f"Siz yuborgan ariza ko'rib chiqildi, lekin bu safar tanlanmadingiz.\n\n"
+            f"💪 Boshqa vakansiyalarni ko'rish uchun:\n"
+            f"https://xorazmjob1.netlify.app"
+        ))
 
     return {"message": "rejected"}
 
