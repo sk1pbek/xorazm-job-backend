@@ -1966,3 +1966,152 @@ def telegram_link(user_id: int):
     return {
         "link": f"https://t.me/xorazmjob_bot?start=user_{user_id}"
     }
+
+# ==========================
+# 🔹 ADMIN — TEKSHIRISH
+# ==========================
+def check_admin(user_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row or row[0] != 'admin':
+        raise HTTPException(403, "Admin huquqi yo'q")
+
+# ==========================
+# 🔹 ADMIN — STATISTIKA
+# ==========================
+@app.get("/admin/stats/{admin_id}")
+def admin_stats(admin_id: int):
+    check_admin(admin_id)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM users WHERE role='worker'")
+    workers = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM users WHERE role='employer'")
+    employers = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM jobs")
+    jobs = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM applications")
+    applications = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+    today_users = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM jobs WHERE created_at::date = CURRENT_DATE")
+    today_jobs = cur.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "workers": workers,
+        "employers": employers,
+        "jobs": jobs,
+        "applications": applications,
+        "today_users": today_users,
+        "today_jobs": today_jobs
+    }
+
+# ==========================
+# 🔹 ADMIN — FOYDALANUVCHILAR
+# ==========================
+@app.get("/admin/users/{admin_id}")
+def admin_users(admin_id: int):
+    check_admin(admin_id)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, name, surname, email, phone, role, created_at
+        FROM users
+        ORDER BY id DESC
+    """)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "surname": r[2],
+            "email": r[3],
+            "phone": r[4],
+            "role": r[5],
+            "created_at": r[6]
+        }
+        for r in rows
+    ]
+
+# ==========================
+# 🔹 ADMIN — USER O'CHIRISH
+# ==========================
+@app.delete("/admin/users/{admin_id}/{user_id}")
+def admin_delete_user(admin_id: int, user_id: int):
+    check_admin(admin_id)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("DELETE FROM user_skills WHERE user_id=%s", (user_id,))
+    cur.execute("DELETE FROM applications WHERE user_id=%s", (user_id,))
+    cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok"}
+
+# ==========================
+# 🔹 ADMIN — VAKANSIYALAR
+# ==========================
+@app.get("/admin/jobs/{admin_id}")
+def admin_jobs(admin_id: int):
+    check_admin(admin_id)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT j.id, j.title, j.company, j.field, j.created_at,
+               COUNT(a.id) as applications_count
+        FROM jobs j
+        LEFT JOIN applications a ON j.id = a.job_id
+        GROUP BY j.id
+        ORDER BY j.id DESC
+    """)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0],
+            "title": r[1],
+            "company": r[2],
+            "field": r[3],
+            "created_at": r[4],
+            "applications_count": r[5]
+        }
+        for r in rows
+    ]
+
+# ==========================
+# 🔹 ADMIN — VAKANSIYA O'CHIRISH
+# ==========================
+@app.delete("/admin/jobs/{admin_id}/{job_id}")
+def admin_delete_job(admin_id: int, job_id: int):
+    check_admin(admin_id)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("DELETE FROM applications WHERE job_id=%s", (job_id,))
+    cur.execute("DELETE FROM jobs WHERE id=%s", (job_id,))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok"}
