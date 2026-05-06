@@ -28,11 +28,7 @@ class UserLogin(BaseModel):
 
 def get_db():
     conn = psycopg2.connect(
-        host="aws-0-eu-central-1.pooler.supabase.com",
-        port=6543,
-        database="postgres",
-        user="postgres.ruykbpipcaiceiqjtwvv",
-        password="ZNaV1adGSyPeSCWE"
+        "postgresql://postgres.ruykbpipcaiceiqjtwvv:ZNaV1adGSyPeSCWE@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
     )
     return conn
 
