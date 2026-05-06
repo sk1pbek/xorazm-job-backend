@@ -320,7 +320,7 @@ def get_job(job_id: int):
 # 🔹 VAKANSIYA QO‘SHISH
 # ==========================
 @app.post("/jobs")
-def create_job(data = Body(...)):
+async def create_job(data = Body(...)):
 
     conn = get_db()
     cur = conn.cursor()
@@ -411,6 +411,24 @@ def create_job(data = Body(...)):
 
     conn.commit()
     conn.close()
+
+# 📱 TELEGRAM — BARCHA WORKERLARGA XABAR
+    conn2 = get_db()
+    cur2 = conn2.cursor()
+    cur2.execute("SELECT telegram_chat_id FROM users WHERE role='worker' AND telegram_chat_id IS NOT NULL")
+    workers = cur2.fetchall()
+    conn2.close()
+
+    for w in workers:
+        asyncio.create_task(send_telegram(w[0],
+            f"🆕 Yangi vakansiya qo'shildi!\n\n"
+            f"<b>{data['title']}</b> — {data['company']}\n\n"
+            f"Ko'rish uchun saytga kiring:\n"
+            f"https://xorazmjob1.netlify.app"
+        ))
+
+
+
 
     return {"message": "success"}
 
@@ -1247,6 +1265,36 @@ async def websocket_chat(websocket: WebSocket, job_id: int, worker_id: int, send
                         await connection.send_json({
                             "type": "new_message"
                         })
+
+
+                # 📱 TELEGRAM — EMPLOYER GA XABAR
+                conn3 = get_db()
+                cur3 = conn3.cursor()
+                cur3.execute("SELECT telegram_chat_id FROM users WHERE id=%s", (employer_id,))
+                employer_tg = cur3.fetchone()
+                conn3.close()
+
+                if employer_tg and employer_tg[0] and sender_id != employer_id:
+                    await send_telegram(employer_tg[0],
+                        f"💬 Yangi chat xabar keldi!\n\n"
+                        f"Saytga kirib javob bering:\n"
+                        f"https://xorazmjob1.netlify.app"
+                    )
+
+                # 📱 TELEGRAM — WORKER GA XABAR
+                conn4 = get_db()
+                cur4 = conn4.cursor()
+                cur4.execute("SELECT telegram_chat_id FROM users WHERE id=%s", (worker_id,))
+                worker_tg = cur4.fetchone()
+                conn4.close()
+
+                if worker_tg and worker_tg[0] and sender_id != worker_id:
+                    await send_telegram(worker_tg[0],
+                        f"💬 Sizga yangi xabar keldi!\n\n"
+                        f"Saytga kirib javob bering:\n"
+                        f"https://xorazmjob1.netlify.app"
+                    )
+
 
             # 🔥 FAQAT SHU ROOM DAGILARGA YUBORISH
             for connection in chat_connections[room]:
