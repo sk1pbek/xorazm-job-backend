@@ -26,10 +26,9 @@ class UserLogin(BaseModel):
 
 
 
-# ====== DB CONNECT ======
 def get_db():
     conn = psycopg2.connect(
-        "postgresql://xorazm_job_db_3jp9_user:W4oUkZELBB005GSc4pzNMQ7lVIZAyOpN@dpg-d793ohtactks73cvdv80-a.frankfurt-postgres.render.com/xorazm_job_db_3jp9"
+        "postgresql://postgres.ruykbpipcaiceiqjtwvv:ZNaV1adGSyPeSCWE@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
     )
     return conn
 
